@@ -163,97 +163,164 @@ const resizeImage = (dataUrl: string, targetWidth: number, targetHeight: number)
   });
 };
 
-const IDENTITY_BLOCK = `
-  !!! PROTOCOLO DE IDENTIDADE FACIAL (PRIORIDADE 0) !!!
-  1. O rosto gerado DEVE SER IDÊNTICO ao da "REFERÊNCIA DE IDENTIDADE" fornecida.
-  2. NÃO CRIE UM ROSTO GENÉRICO. Clone os traços: nariz, olhos, boca, estrutura óssea e imperfeições.
-  3. Mantenha a mesma etnia, idade e características distintivas (barba, óculos, sinais) da referência.
-  4. Se a referência for uma pessoa real, o resultado deve parecer a MESMA PESSOA em uma nova foto.
+const REALISM_BLOCK = `
+  ### STRICT REALISM PROTOCOL (NO CARTOONS ALLOWED) ###
+  1. STYLE: RAW PHOTOGRAPHY (Sony A7R IV).
+  2. TEXTURE: Skin MUST have visible pores, moles, and micro-texture. NO "smooth plastic" or "airbrushed" look.
+  3. LIGHTING: Physically based rendering (PBR). Shadows must match the light sources.
+  4. FORBIDDEN: Illustration, Drawing, Painting, Anime, 3D Character Art, Plastic Skin.
+  5. IDENTITY: The face must be a DIGITAL CLONE of the reference.
 `;
 
 const buildBackgroundPrompt = (settings: GenerationSettings, type: 'desktop' | 'mobile', hasContextImage: boolean, refineInstruction?: string, uiMode: UIMode = 'DESIGNER'): string => {
     const { 
         niche, subjectDescription, position, environmentDescription,
-        environmentMaterial, depthLevel, lightingStyle,
+        environmentMaterial, depthLevel, lightingStyle, colorGrading,
         rimLight, framing, styleMode, gradientColor, gradientDirection, useCustomSize, customWidth, customHeight, presetStyleDescription, masterStyleReference,
-        // Adicionado Floating Elements para garantir que sejam usados
-        floatingElements, floatingElementsDescription
+        floatingElements, floatingElementsDescription,
+        backgroundColor, keyLight, complementaryLight, volumetricLight
       } = settings;
     
-      const isMobile = type === 'mobile';
-      const isQuickMode = uiMode === 'QUICK';
-    
       if (refineInstruction && hasContextImage) {
-        return `ATUE COMO EDITOR SÊNIOR. TAREFA: Editar a imagem fornecida com base nesta instrução: "${refineInstruction}". REGRAS: 1. ${IDENTITY_BLOCK} 2. MANTENHA A IDENTIDADE.`;
-      }
-    
-      let directionPrompt = "vindo de BAIXO"; 
-      switch(gradientDirection) {
-         case GradientDirection.BOTTOM_UP: directionPrompt = "vindo de BAIXO (Bottom-Up)"; break;
-         case GradientDirection.TOP_DOWN: directionPrompt = "vindo de CIMA (Top-Down)"; break;
-         case GradientDirection.LEFT_RIGHT: directionPrompt = "vindo da ESQUERDA"; break;
-         case GradientDirection.RIGHT_LEFT: directionPrompt = "vindo da DIREITA"; break;
+        return `ROLE: Senior Retoucher. TASK: Edit the photo strictly following: "${refineInstruction}". RULES: 1. ${REALISM_BLOCK} 2. KEEP IDENTITY PRESERVED.`;
       }
       
-      let compositionPrompt = "";
-      let gradientInstruction = "";
-
+      const isMobile = type === 'mobile';
+      
+      // 1. CAMERA RIG (STRICT)
+      let cameraSetup = "";
       if (isMobile) {
-        const mobileSizeInstruction = useCustomSize ? `RESOLUÇÃO EXATA DE SAÍDA: ${customWidth}x${customHeight} pixels.` : "FORMATO: Vertical 9:16.";
-        const color = gradientColor || '#000000';
-        compositionPrompt = `VERSÃO MOBILE: 1. ${mobileSizeInstruction} 2. Sujeito CENTRALIZADO. 3. HEADROOM OBRIGATÓRIO.`;
-        gradientInstruction = `SAFE ZONE: APLICAR DEGRADÊ (${color}) EXTREMAMENTE FORTE ${directionPrompt} cobrindo 40% da área inferior.`;
+          cameraSetup = `
+          - FORMAT: 9:16 Vertical.
+          - COMPOSITION: Subject CENTERED.
+          - HEADROOM: Leave clear space above head for UI.
+          `;
       } else {
-        const sizeInstruction = useCustomSize ? `RESOLUÇÃO ALVO: ${customWidth}x${customHeight}.` : "FORMATO: Hero Desktop (16:9).";
-        compositionPrompt = `LAYOUT DESKTOP: 1. ${sizeInstruction} 2. POSIÇÃO: ${position.toUpperCase()}. 3. HEADROOM OBRIGATÓRIO.`;
-        if (isQuickMode || styleMode === StyleMode.FADE) {
-           gradientInstruction = `SAFE ZONE: Adicione DEGRADÊ PROFISSIONAL cor ${gradientColor} ${directionPrompt}.`;
-        }
+          // Desktop Logic - FORCE override of reference composition
+          let posInstruction = "";
+          if (position === 'Esquerda') posInstruction = "Subject MUST be on the LEFT THIRD. Right side EMPTY.";
+          else if (position === 'Direita') posInstruction = "Subject MUST be on the RIGHT THIRD. Left side EMPTY.";
+          else posInstruction = "Subject CENTERED.";
+          
+          cameraSetup = `
+          - FORMAT: 16:9 Horizontal.
+          - POSITIONING: ${position.toUpperCase()}. ${posInstruction}
+          - FRAMING: ${framing}.
+          - WARNING: Ignore the reference image's position. Use the position specified HERE.
+          `;
       }
-    
-      let stylePrompt = masterStyleReference ? `!!! BLUEPRINT VISUAL ATIVO !!! Use EXATAMENTE a estética da imagem mestre para o nicho ${niche}.` : "";
-      let framingPrompt = "";
-      switch(framing) {
-        case Framing.CLOSEUP: framingPrompt = "Foco intenso no rosto."; break;
-        case Framing.MID: framingPrompt = "Plano Médio profissional."; break;
-        case Framing.AMERICAN: framingPrompt = "Plano Americano."; break;
-      }
-      
-      let customLightsDetails = isQuickMode ? "ILUMINAÇÃO AUTOMÁTICA OTIMIZADA." : `Lighting Style: ${lightingStyle}. RimLight: ${rimLight.enabled?rimLight.value:'off'}.`;
 
-      // Lógica de Elementos Flutuantes
-      let floatingElementsPrompt = "";
-      if (floatingElements) {
-         const desc = floatingElementsDescription && floatingElementsDescription.trim() !== '' 
-            ? floatingElementsDescription 
-            : "elementos 3D sutis, partículas de vidro ou formas geométricas tecnológicas";
-         floatingElementsPrompt = `ELEMENTOS FLUTUANTES (3D/VFX): OBRIGATÓRIO adicionar ${desc} flutuando no cenário para profundidade e dinamismo.`;
-      }
+      // 2. PHYSICAL LIGHTING SETUP (DISTINCT SOURCES)
+      let activeLights = [];
       
+      if (rimLight.enabled) activeLights.push(`SOURCE A (Back/Edge): High Intensity RIM LIGHT. Color: ${rimLight.value} (Hex). Purpose: Separation.`);
+      if (keyLight.enabled) activeLights.push(`SOURCE B (Front/Face): Soft KEY LIGHT. Color: ${keyLight.value} (Hex). Purpose: Face illumination.`);
+      if (complementaryLight.enabled) activeLights.push(`SOURCE C (Fill): Low Intensity FILL. Color: ${complementaryLight.value} (Hex).`);
+      if (volumetricLight.enabled) activeLights.push(`SOURCE D (Atmosphere): Volumetric Fog/Haze. Color: ${volumetricLight.value} (Hex).`);
+      if (backgroundColor.enabled) activeLights.push(`SOURCE E (Environment): Background Ambient Tint. Color: ${backgroundColor.value} (Hex) at ${Math.round(backgroundColor.opacity * 100)}% opacity.`);
+
+      let lightingBlock = "";
+      if (activeLights.length > 0) {
+          lightingBlock = `
+          ### MULTI-LIGHT SETUP (RENDER ALL DISTINCTLY)
+          You are a virtual gaffer. Place these SPECIFIC lights in the scene. 
+          DO NOT blend them into one color. If Rim is Red and Key is Blue, I want to see RED EDGES and BLUE FACE simultaneously.
+          ${activeLights.join('\n')}
+          `;
+      } else {
+          lightingBlock = "LIGHTING: Professional Studio Lighting (Rembrandt or Split).";
+      }
+
+      // 3. UI OVERLAY (MANDATORY GRADIENT)
+      let postProcessingBlock = "";
+      if (uiMode === 'QUICK' || styleMode === StyleMode.FADE) {
+          let dirText = "";
+          switch(gradientDirection) {
+              case GradientDirection.BOTTOM_UP: dirText = "Bottom (Opaque) to Top (Transparent)"; break;
+              case GradientDirection.TOP_DOWN: dirText = "Top (Opaque) to Bottom (Transparent)"; break;
+              case GradientDirection.LEFT_RIGHT: dirText = "Left (Opaque) to Right (Transparent)"; break;
+              case GradientDirection.RIGHT_LEFT: dirText = "Right (Opaque) to Left (Transparent)"; break;
+          }
+
+          postProcessingBlock = `
+          ### UI LAYER (COMPOSITING)
+          - ACTION: Bake a linear gradient overlay for text readability.
+          - COLOR: ${gradientColor} (Hex).
+          - DIRECTION: ${dirText}.
+          - INTENSITY: Start at 100% opacity, fade to 0%.
+          `;
+      }
+
+      // 4. ENVIRONMENT & PROPS
+      let floatingBlock = "";
+      if (floatingElements) {
+          const props = floatingElementsDescription || "Abstract tech shapes, glass shards";
+          floatingBlock = `
+          - SCENOGRAPHY: Add floating 3D elements (${props}) around the subject.
+          - DEPTH: Use Depth of Field (Bokeh) to blur background elements.
+          `;
+      }
+
+      // FINAL PROMPT ASSEMBLY
       return `
-        Artista Digital Sênior. NICHO: ${niche}. ${IDENTITY_BLOCK} ${stylePrompt}
-        ${compositionPrompt} ${gradientInstruction}
+        ROLE: High-End CGI Artist & Photographer.
+        TASK: Create a Photorealistic Website Hero Background.
+
+        ${REALISM_BLOCK}
+
+        ### 1. CAMERA & SUBJECT
+        ${cameraSetup}
+        - SUBJECT DETAILS: ${subjectDescription}
+
+        ### 2. LIGHTING & ATMOSPHERE (STRICT ADHERENCE)
+        - BASE STYLE: ${lightingStyle}.
+        ${lightingBlock}
+
+        ### 3. ENVIRONMENT
+        - NICHE: ${niche}.
+        - DETAILS: ${environmentDescription}.
+        - MATERIAL: ${environmentMaterial} (Realistic PBR Texture).
+        - COLOR GRADING: ${colorGrading}.
+        ${floatingBlock}
         
-        DETALHES DO SUJEITO:
-        ${framingPrompt} ${subjectDescription}.
-        
-        AMBIENTE E CENÁRIO (OBRIGATÓRIO SEGUIR):
-        - Material Predominante: ${environmentMaterial}.
-        - Descrição do Local: ${environmentDescription}.
-        - Profundidade: ${depthLevel}.
-        ${floatingElementsPrompt}
-        
-        ILUMINAÇÃO:
-        ${customLightsDetails}
-        ${presetStyleDescription || ""}
-        
-        QUALIDADE: 8k, Nano Banana Pro, Unreal Engine 5 Render Style.
+        ### 4. STYLE REFERENCE
+        ${masterStyleReference ? '- STYLE CLONE: Copy the exact mood, texture quality, and color palette of the "Reference Style Blueprint" image.' : ''}
+
+        ${postProcessingBlock}
+
+        ### NEGATIVE PROMPT (AVOID):
+        - NO CARTOONS, NO DRAWINGS, NO ILLUSTRATIONS.
+        - NO PLASTIC SKIN.
+        - DO NOT IGNORE SELECTED LIGHT COLORS.
+        - DO NOT CHANGE SUBJECT POSITION.
+
+        OUTPUT: 8K Raw Photo.
       `;
 };
 
 const buildThumbnailPrompt = (settings: ThumbnailSettings): string => {
-   const { mainText, secondaryText, avatarSide, vibe, projectContext, environmentMaterial, lightingStyle } = settings;
-   return `DESIGNER THUMBNAIL. ${IDENTITY_BLOCK} Contexto: ${projectContext}. Vibe: ${vibe}. Layout: Avatar ${avatarSide}. Texto: ${mainText} - ${secondaryText}. Estilo: ${lightingStyle}. Material: ${environmentMaterial}.`;
+   const { mainText, secondaryText, avatarSide, vibe, projectContext, environmentMaterial, lightingStyle, rimLight, keyLight, volumetricLight, depthLevel } = settings;
+   
+   let prompt = `ROLE: Viral YouTube Thumbnail Artist.\n`;
+   prompt += `${REALISM_BLOCK}\n`;
+   prompt += `CONTEXT: ${projectContext}.\n`;
+   prompt += `VIBE: ${vibe}.\n\n`;
+   
+   prompt += `### LAYOUT (STRICT)\n`;
+   prompt += `- AVATAR: Place on the ${avatarSide === 'left' ? 'LEFT' : 'RIGHT'} side.\n`;
+   prompt += `- EXPRESSION: Hyper-real, intense emotion.\n`;
+   prompt += `- SPACE: Leave opposite side EMPTY for text.\n\n`;
+   
+   prompt += `### LIGHTING (MULTI-SOURCE)\n`;
+   prompt += `- STYLE: ${lightingStyle}.\n`;
+   if (rimLight.enabled) prompt += `- RIM LIGHT: ${rimLight.value} (Hex) Hard Edge Light.\n`;
+   if (keyLight.enabled) prompt += `- KEY LIGHT: ${keyLight.value} (Hex) on Face.\n`;
+   
+   prompt += `### BACKGROUND\n`;
+   prompt += `- Material: ${environmentMaterial}.\n`;
+   prompt += `- Quality: Photorealistic 8K.\n`;
+
+   return prompt;
 };
 
 const parseDataUrl = (url: string) => {
@@ -347,7 +414,7 @@ export const generateBackground = async (
   
   if (masterStyleRef) {
       const optimized = await compressReferenceImage(masterStyleRef);
-      parts.push({ text: "IMAGEM REFERÊNCIA MESTRE DE ESTILO (BLUEPRINT VISUAL):" });
+      parts.push({ text: "REFERENCE STYLE BLUEPRINT (COPY MOOD & COLORS):" });
       parts.push({ inlineData: { mimeType: optimized.mimeType, data: optimized.base64 } });
   }
 
@@ -355,12 +422,12 @@ export const generateBackground = async (
     const parsed = parseDataUrl(contextImageUrl);
     if (parsed) {
       parts.push({ inlineData: { mimeType: parsed.mimeType, data: parsed.base64 } });
-      parts.push({ text: "REFERÊNCIA PRIMÁRIA: Use a imagem acima como base absoluta." });
+      parts.push({ text: "PRIMARY CONTEXT IMAGE (BASE):" });
     }
   }
 
   if (subjectImages.length > 0) {
-    parts.push({ text: "REFERÊNCIA DE IDENTIDADE (AVATAR/SUJEITO) - CLONAR ESTE ROSTO:" });
+    parts.push({ text: "IDENTITY REFERENCE (CLONE FACE EXACTLY - KEEP PORES/TEXTURE):" });
     for (const img of subjectImages) {
         const optimized = await compressReferenceImage(img);
         parts.push({ inlineData: { mimeType: optimized.mimeType, data: optimized.base64 } });
@@ -368,7 +435,7 @@ export const generateBackground = async (
   }
 
   if (!hasContext && environmentImages && environmentImages.length > 0) {
-     const label = appMode === AppMode.THUMBNAIL ? "REFERÊNCIA DE FUNDO:" : "REFERÊNCIA DE AMBIENTE:";
+     const label = appMode === AppMode.THUMBNAIL ? "BACKGROUND REF:" : "ENVIRONMENT REF (USE FOR TEXTURE/MATERIAL):";
      parts.push({ text: label });
      for (const img of environmentImages) {
         const optimized = await compressReferenceImage(img);
@@ -377,14 +444,14 @@ export const generateBackground = async (
   }
 
   if (!hasContext && styleImages.length > 0) {
-    parts.push({ text: "REFERÊNCIAS DE ESTILO SECUNDÁRIAS (VIBE):" });
+    parts.push({ text: "SECONDARY VIBE REFERENCES:" });
     for (let i = 0; i < styleImages.length; i++) {
         const img = styleImages[i];
         const optimized = await compressReferenceImage(img);
         parts.push({ inlineData: { mimeType: optimized.mimeType, data: optimized.base64 } });
         const instruction = img.description && img.description.trim() !== ''
-            ? `ESTILO ${i + 1}: ${img.description}.`
-            : `ESTILO ${i + 1}: Copie a paleta, luz e atmosfera.`;
+            ? `STYLE REF ${i + 1}: ${img.description}.`
+            : `STYLE REF ${i + 1}: Copy lighting/atmosphere.`;
         parts.push({ text: instruction });
     }
   }
