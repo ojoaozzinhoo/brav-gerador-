@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { SpeedInsights } from '@vercel/speed-insights/react';
 import { OptionSelector } from './components/OptionSelector';
 import { ImageUpload } from './components/ImageUpload';
 import { HistoryBar } from './components/HistoryBar';
@@ -743,6 +744,7 @@ const App: React.FC = () => {
   return (
     <AuthProvider>
       <AppContent />
+      <SpeedInsights />
     </AuthProvider>
   );
 };
