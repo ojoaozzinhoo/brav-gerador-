@@ -96,29 +96,58 @@ export const dbService = {
 
   getCurrentUser: async (): Promise<User | null> => {
     try {
-      const { data: { session } } = await supabase.auth.getSession();
+      // Verifica sessão
+      const { data, error } = await supabase.auth.getSession();
+      
+      if (error) {
+          console.warn("Erro ao obter sessão:", error);
+          return null;
+      }
+      
+      const session = data?.session;
       
       if (session?.user) {
-        // Fetch profile details
-        const { data: profile } = await supabase
-            .from('profiles')
-            .select('*')
-            .eq('id', session.user.id)
-            .single();
+        try {
+            // Fetch profile details
+            const { data: profile, error: profileError } = await supabase
+                .from('profiles')
+                .select('*')
+                .eq('id', session.user.id)
+                .single();
 
-        return {
-            id: session.user.id,
-            email: session.user.email || '',
-            name: session.user.user_metadata?.name || session.user.email?.split('@')[0] || 'Usuário',
-            avatar: session.user.user_metadata?.avatar_url,
-            role: profile?.role || 'user',
-            image_limit: profile?.image_limit ?? 10,
-            images_generated: profile?.images_generated ?? 0,
-            allowed_system_key: profile?.allowed_system_key
-        };
+            if (profileError) {
+                console.warn("Erro ao buscar perfil:", profileError);
+                // Retorna usuário básico mesmo sem perfil para não bloquear
+                return {
+                    id: session.user.id,
+                    email: session.user.email || '',
+                    name: session.user.user_metadata?.name || session.user.email?.split('@')[0] || 'Usuário',
+                    avatar: session.user.user_metadata?.avatar_url,
+                    role: 'user',
+                    image_limit: 10,
+                    images_generated: 0,
+                    allowed_system_key: false
+                };
+            }
+
+            return {
+                id: session.user.id,
+                email: session.user.email || '',
+                name: session.user.user_metadata?.name || session.user.email?.split('@')[0] || 'Usuário',
+                avatar: session.user.user_metadata?.avatar_url,
+                role: profile?.role || 'user',
+                image_limit: profile?.image_limit ?? 10,
+                images_generated: profile?.images_generated ?? 0,
+                allowed_system_key: profile?.allowed_system_key
+            };
+        } catch (innerError) {
+            console.error("Erro crítico ao processar perfil:", innerError);
+            return null;
+        }
       }
       return null;
     } catch (error) {
+      console.error("Erro crítico em getCurrentUser:", error);
       return null;
     }
   },

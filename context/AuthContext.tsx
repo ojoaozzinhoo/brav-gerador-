@@ -28,8 +28,24 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setUser(currentUser);
      } catch (error) {
         console.error("Erro ao atualizar usuário", error);
+        // Em caso de erro crítico no DB, garantimos que o usuário seja nulo para forçar login
+        setUser(null);
      }
   };
+
+  // FAILSAFE: Force exit loading state after 6 seconds max
+  useEffect(() => {
+    const timer = setTimeout(() => {
+        setIsLoading(prev => {
+            if (prev) {
+                console.warn("AuthContext: Loading timed out, forcing UI unlock.");
+                return false;
+            }
+            return prev;
+        });
+    }, 6000);
+    return () => clearTimeout(timer);
+  }, []);
 
   // Check session on load and listen for changes
   useEffect(() => {
@@ -37,40 +53,50 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     const initSession = async () => {
         try {
-            // Timeout de 5 segundos para evitar travamento infinito no loading
-            const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout")), 5000));
+            // Race condition check: se o DB demorar, o timeout vence e libera a UI
+            const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("Auth Timeout")), 4000));
             const authPromise = refreshUser();
             
             await Promise.race([authPromise, timeoutPromise]);
         } catch (error) {
-            console.warn("Inicialização de sessão lenta ou falhou:", error);
+            console.warn("Inicialização de sessão:", error);
         } finally {
             if (mounted) setIsLoading(false);
         }
     };
     initSession();
 
-    // Listen for Auth Events (Recovery, Sign In, etc)
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-        if (!mounted) return;
-        
-        if (event === 'PASSWORD_RECOVERY') {
-            setRecoveryMode(true);
-        }
-        
-        if (event === 'SIGNED_IN') {
-             await refreshUser();
-        }
-        
-        if (event === 'SIGNED_OUT') {
-            setUser(null);
-            setRecoveryMode(false);
-        }
-    });
+    // Setup listener
+    let subscription: any = null;
+    try {
+        const { data } = supabase.auth.onAuthStateChange(async (event, session) => {
+            if (!mounted) return;
+            
+            if (event === 'PASSWORD_RECOVERY') {
+                setRecoveryMode(true);
+            }
+            
+            if (event === 'SIGNED_IN') {
+                 // Pequeno delay para garantir que o token propagou
+                 setTimeout(() => refreshUser(), 100);
+            }
+            
+            if (event === 'SIGNED_OUT') {
+                setUser(null);
+                setRecoveryMode(false);
+            }
+        });
+        subscription = data.subscription;
+    } catch (e) {
+        console.error("Erro ao registrar listener do Supabase:", e);
+        setIsLoading(false);
+    }
 
     return () => {
         mounted = false;
-        subscription.unsubscribe();
+        if (subscription && subscription.unsubscribe) {
+            subscription.unsubscribe();
+        }
     };
   }, []);
 
