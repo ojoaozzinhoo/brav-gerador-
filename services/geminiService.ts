@@ -22,7 +22,21 @@ const getApiKey = async (): Promise<string | null> => {
   const manualKey = localStorage.getItem('user_provided_api_key');
   if (manualKey) return manualKey;
 
-  // 2. Verifica Permissão de Chave do Sistema (Requer DB)
+  // 2. Environment Variables (Priority over DB)
+  // Checks for injected environment variables (Vite replaces process.env.API_KEY at build time)
+  try {
+    // @ts-ignore
+    if (typeof process !== 'undefined' && process.env && process.env.API_KEY) {
+       // @ts-ignore
+       return process.env.API_KEY;
+    }
+  } catch(e) {}
+
+  if ((import.meta as any).env && (import.meta as any).env.VITE_API_KEY) {
+      return (import.meta as any).env.VITE_API_KEY;
+  }
+
+  // 3. Verifica Permissão de Chave do Sistema (Requer DB)
   try {
       const currentUser = await dbService.getCurrentUser();
       
@@ -30,11 +44,6 @@ const getApiKey = async (): Promise<string | null> => {
       if (currentUser?.allowed_system_key || currentUser?.role === 'admin') {
           const dbKey = await dbService.getGlobalApiKey();
           if (dbKey) return dbKey;
-          
-          // Fallback seguro para env var (evita crash se process não existir)
-          if (typeof process !== 'undefined' && process.env && process.env.API_KEY) {
-             return process.env.API_KEY;
-          }
       }
   } catch (error) {
       console.warn("Erro ao verificar chave de sistema:", error);
@@ -262,9 +271,9 @@ export const generateBackground = async (
   
   if (!apiKeyToUse) {
       if (currentUser.role === 'admin') {
-          throw new Error("ADMIN: Chave de API Global não configurada. Vá em 'Configurações (Engrenagem)' -> 'Painel Administrativo' -> 'Configuração Global' e salve sua API Key do Google Gemini.");
+          throw new Error("ADMIN: Chave de API não detectada (Env Var ou Banco). Por favor, configure a chave no Painel Admin ou verifique as variáveis de ambiente.");
       } else {
-          throw new Error("Acesso negado: Nenhuma Chave de API disponível. Peça ao administrador para configurar a chave do sistema ou insira sua chave pessoal.");
+          throw new Error("Acesso negado: Nenhuma Chave de API disponível. Peça ao administrador para configurar a chave do sistema.");
       }
   }
 
@@ -318,7 +327,6 @@ export const generateBackground = async (
   const parts: any[] = [{ text: prompt }];
 
   // --- IMAGE PREPARATION & COMPRESSION ---
-  // Comprimir todas as imagens antes de anexar para evitar Payload Too Large e Timeouts
   
   if (masterStyleRef) {
       const optimized = await compressReferenceImage(masterStyleRef);
