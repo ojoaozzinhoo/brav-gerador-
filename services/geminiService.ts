@@ -30,6 +30,7 @@ const getApiKey = async (): Promise<string | null> => {
       if (currentUser?.allowed_system_key || currentUser?.role === 'admin') {
           const dbKey = await dbService.getGlobalApiKey();
           if (dbKey) return dbKey;
+          // Fallback para env var (funciona localmente, raramente em prod client-side sem build config)
           if (process.env.API_KEY) return process.env.API_KEY;
       }
   } catch (error) {
@@ -245,10 +246,15 @@ export const generateBackground = async (
     throw new Error(`Limite de gerações atingido (${currentUser.images_generated}/${currentUser.image_limit}). Peça mais créditos ao admin.`);
   }
 
-  // 2. OBTAIN API KEY
+  // 2. OBTAIN API KEY with Better Error Handling
   let apiKeyToUse = await getApiKey();
+  
   if (!apiKeyToUse) {
-      throw new Error("Acesso negado: Nenhuma Chave de API disponível.");
+      if (currentUser.role === 'admin') {
+          throw new Error("ADMIN: Chave de API Global não configurada. Vá em 'Configurações (Engrenagem)' -> 'Painel Administrativo' -> 'Configuração Global' e salve sua API Key do Google Gemini.");
+      } else {
+          throw new Error("Acesso negado: Nenhuma Chave de API disponível. Peça ao administrador para configurar a chave do sistema ou insira sua chave pessoal.");
+      }
   }
 
   const ai = new GoogleGenAI({ apiKey: apiKeyToUse });
