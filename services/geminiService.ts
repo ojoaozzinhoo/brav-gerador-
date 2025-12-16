@@ -181,8 +181,22 @@ const buildBackgroundPrompt = (settings: GenerationSettings, type: 'desktop' | '
         backgroundColor, keyLight, complementaryLight, volumetricLight
       } = settings;
     
+      // --- LOGIC FOR REFINE / MANIPULATION ---
       if (refineInstruction && hasContextImage) {
-        return `ROLE: Senior Retoucher. TASK: Edit the photo strictly following: "${refineInstruction}". RULES: 1. ${REALISM_BLOCK} 2. KEEP IDENTITY PRESERVED.`;
+        return `
+        ROLE: Senior VFX Artist & Photo Manipulator.
+        TASK: Execute the following User Command with absolute precision.
+        
+        ### USER COMMAND (MANDATORY EXECUTION):
+        "${refineInstruction}"
+
+        EXECUTION GUIDELINES:
+        1. IF asked to ADD objects: You must composite them into the scene realistically (matching lighting and shadows).
+        2. IF asked to CHANGE background: Replace the environment completely but keep the subject's identity.
+        3. IF asked to REMOVE elements: Clean plate the area.
+        4. ${REALISM_BLOCK}
+        5. PRESERVE IDENTITY: Do not distort the person's face.
+        `;
       }
       
       const isMobile = type === 'mobile';
@@ -251,15 +265,29 @@ const buildBackgroundPrompt = (settings: GenerationSettings, type: 'desktop' | '
           `;
       }
 
-      // 4. ENVIRONMENT & PROPS
+      // 4. ENVIRONMENT & PROPS (USER MANIFEST)
       let floatingBlock = "";
       if (floatingElements) {
-          const props = floatingElementsDescription || "Abstract tech shapes, glass shards";
+          const userHasProvidedProps = floatingElementsDescription && floatingElementsDescription.trim().length > 0;
+          const props = userHasProvidedProps ? floatingElementsDescription : "Abstract tech shapes, glass shards";
+          
           floatingBlock = `
-          - SCENOGRAPHY: Add floating 3D elements (${props}) around the subject.
-          - DEPTH: Use Depth of Field (Bokeh) to blur background elements.
+          ### [LAYER 4: SCENE OBJECTS & PROPS - CRITICAL]
+          - INSTRUCTION: You MUST render specific objects in the scene.
+          - CRITICAL OBJECTS: ${props}.
+          - VISIBILITY: 100% VISIBLE. These are mandatory, not optional.
+          - PLACEMENT: Floating around the subject or placed in the foreground.
           `;
       }
+
+      // User Specific Environment Details
+      const userEnvDetail = environmentDescription && environmentDescription.trim().length > 0 
+          ? `SPECIFIC DETAILS (MANDATORY): "${environmentDescription}". Ensure these elements appear clearly.`
+          : "";
+
+      const userSubjectDetail = subjectDescription && subjectDescription.trim().length > 0
+          ? `SUBJECT SPECIFICS (MANDATORY): "${subjectDescription}".`
+          : "";
 
       // FINAL PROMPT ASSEMBLY
       return `
@@ -268,17 +296,21 @@ const buildBackgroundPrompt = (settings: GenerationSettings, type: 'desktop' | '
 
         ${REALISM_BLOCK}
 
+        ### [PRIORITY 0: USER MANIFEST - DO NOT IGNORE]
+        The user has explicitly requested the following elements. You MUST include them:
+        1. ${userSubjectDetail || "Standard Professional Portrait"}
+        2. ${userEnvDetail || "Standard Background matching Niche"}
+        3. ${floatingElements ? `PROPS: ${floatingElementsDescription || "Standard 3D Elements"}` : "No Props"}
+
         ### 1. CAMERA & SUBJECT
         ${cameraSetup}
-        - SUBJECT DETAILS: ${subjectDescription}
 
         ### 2. LIGHTING & ATMOSPHERE (STRICT ADHERENCE)
         - BASE STYLE: ${lightingStyle}.
         ${lightingBlock}
 
-        ### 3. ENVIRONMENT
+        ### 3. ENVIRONMENT & SCENOGRAPHY
         - NICHE: ${niche}.
-        - DETAILS: ${environmentDescription}.
         - MATERIAL: ${environmentMaterial} (Realistic PBR Texture).
         - COLOR GRADING: ${colorGrading}.
         ${floatingBlock}
@@ -291,8 +323,8 @@ const buildBackgroundPrompt = (settings: GenerationSettings, type: 'desktop' | '
         ### NEGATIVE PROMPT (AVOID):
         - NO CARTOONS, NO DRAWINGS, NO ILLUSTRATIONS.
         - NO PLASTIC SKIN.
+        - DO NOT IGNORE USER REQUESTED ELEMENTS.
         - DO NOT IGNORE SELECTED LIGHT COLORS.
-        - DO NOT CHANGE SUBJECT POSITION.
 
         OUTPUT: 8K Raw Photo.
       `;
