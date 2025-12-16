@@ -30,8 +30,11 @@ const getApiKey = async (): Promise<string | null> => {
       if (currentUser?.allowed_system_key || currentUser?.role === 'admin') {
           const dbKey = await dbService.getGlobalApiKey();
           if (dbKey) return dbKey;
-          // Fallback para env var (funciona localmente, raramente em prod client-side sem build config)
-          if (process.env.API_KEY) return process.env.API_KEY;
+          
+          // Fallback seguro para env var (evita crash se process não existir)
+          if (typeof process !== 'undefined' && process.env && process.env.API_KEY) {
+             return process.env.API_KEY;
+          }
       }
   } catch (error) {
       console.warn("Erro ao verificar chave de sistema:", error);
@@ -59,12 +62,19 @@ export const promptForApiKey = async (): Promise<void> => {
 
 // --- IMAGE OPTIMIZATION HELPERS ---
 
-// Otimiza imagens de entrada (referências) para evitar payload gigante e travamentos
+// Otimiza imagens de entrada com timeout de segurança
 const compressReferenceImage = async (img: ReferenceImage): Promise<ReferenceImage> => {
     return new Promise((resolve) => {
+        // Timeout de 5s para evitar que uma imagem corrompida trave o app
+        const timeoutId = setTimeout(() => {
+             console.warn("Timeout na compressão de imagem. Usando original.");
+             resolve(img);
+        }, 5000);
+
         const image = new Image();
         image.onload = () => {
-            const MAX_SIZE = 1536; // Tamanho seguro para referências (bom detalhe, baixo peso)
+            clearTimeout(timeoutId);
+            const MAX_SIZE = 1536; // Tamanho seguro para referências
             let w = image.width;
             let h = image.height;
             
@@ -93,7 +103,7 @@ const compressReferenceImage = async (img: ReferenceImage): Promise<ReferenceIma
             if(!ctx) { resolve(img); return; }
             
             ctx.drawImage(image, 0, 0, w, h);
-            // Comprime para JPEG 85% - Drástica redução de tamanho da string base64
+            // Comprime para JPEG 85%
             const newDataUrl = canvas.toDataURL('image/jpeg', 0.85);
             resolve({
                 base64: newDataUrl.split(',')[1],
@@ -102,7 +112,8 @@ const compressReferenceImage = async (img: ReferenceImage): Promise<ReferenceIma
             });
         };
         image.onerror = () => {
-            console.warn("Falha ao comprimir imagem, usando original.");
+            clearTimeout(timeoutId);
+            console.warn("Falha ao carregar imagem para compressão, usando original.");
             resolve(img); 
         };
         image.src = `data:${img.mimeType};base64,${img.base64}`;
@@ -354,7 +365,7 @@ export const generateBackground = async (
   }
   
   try {
-    // 3. API Call with TIMEOUT PROTECTION (95s limit - increased for safety)
+    // 3. API Call with TIMEOUT PROTECTION (95s limit)
     const timeoutPromise = new Promise((_, reject) => 
         setTimeout(() => reject(new Error("O servidor demorou muito para responder (Timeout). A imagem pode ser muito complexa.")), 95000)
     );
@@ -373,8 +384,6 @@ export const generateBackground = async (
     const response: any = await Promise.race([apiCallPromise, timeoutPromise]);
 
     // 4. INCREMENT USAGE (FIRE AND FORGET)
-    // Não esperamos o banco responder para não travar a UI.
-    // Executamos a promessa sem 'await' e tratamos erro no catch isolado.
     dbService.incrementUsage(currentUser.id).then(() => {
         const usage = response.usageMetadata;
         trackUsage(
