@@ -175,7 +175,9 @@ const buildBackgroundPrompt = (settings: GenerationSettings, type: 'desktop' | '
     const { 
         niche, subjectDescription, position, environmentDescription,
         environmentMaterial, depthLevel, lightingStyle,
-        rimLight, framing, styleMode, gradientColor, gradientDirection, useCustomSize, customWidth, customHeight, presetStyleDescription, masterStyleReference
+        rimLight, framing, styleMode, gradientColor, gradientDirection, useCustomSize, customWidth, customHeight, presetStyleDescription, masterStyleReference,
+        // Adicionado Floating Elements para garantir que sejam usados
+        floatingElements, floatingElementsDescription
       } = settings;
     
       const isMobile = type === 'mobile';
@@ -218,15 +220,34 @@ const buildBackgroundPrompt = (settings: GenerationSettings, type: 'desktop' | '
       }
       
       let customLightsDetails = isQuickMode ? "ILUMINAÇÃO AUTOMÁTICA OTIMIZADA." : `Lighting Style: ${lightingStyle}. RimLight: ${rimLight.enabled?rimLight.value:'off'}.`;
+
+      // Lógica de Elementos Flutuantes
+      let floatingElementsPrompt = "";
+      if (floatingElements) {
+         const desc = floatingElementsDescription && floatingElementsDescription.trim() !== '' 
+            ? floatingElementsDescription 
+            : "elementos 3D sutis, partículas de vidro ou formas geométricas tecnológicas";
+         floatingElementsPrompt = `ELEMENTOS FLUTUANTES (3D/VFX): OBRIGATÓRIO adicionar ${desc} flutuando no cenário para profundidade e dinamismo.`;
+      }
       
       return `
         Artista Digital Sênior. NICHO: ${niche}. ${IDENTITY_BLOCK} ${stylePrompt}
         ${compositionPrompt} ${gradientInstruction}
-        DETALHES: ${framingPrompt} ${subjectDescription}.
-        AMBIENTE: ${environmentMaterial} ${depthLevel} ${environmentDescription}.
+        
+        DETALHES DO SUJEITO:
+        ${framingPrompt} ${subjectDescription}.
+        
+        AMBIENTE E CENÁRIO (OBRIGATÓRIO SEGUIR):
+        - Material Predominante: ${environmentMaterial}.
+        - Descrição do Local: ${environmentDescription}.
+        - Profundidade: ${depthLevel}.
+        ${floatingElementsPrompt}
+        
+        ILUMINAÇÃO:
         ${customLightsDetails}
         ${presetStyleDescription || ""}
-        QUALIDADE: 8k, Nano Banana Pro.
+        
+        QUALIDADE: 8k, Nano Banana Pro, Unreal Engine 5 Render Style.
       `;
 };
 
