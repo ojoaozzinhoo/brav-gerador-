@@ -33,19 +33,27 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   // Check session on load and listen for changes
   useEffect(() => {
+    let mounted = true;
+
     const initSession = async () => {
         try {
-            await refreshUser();
+            // Timeout de 5 segundos para evitar travamento infinito no loading
+            const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout")), 5000));
+            const authPromise = refreshUser();
+            
+            await Promise.race([authPromise, timeoutPromise]);
         } catch (error) {
-            console.error("Sessão inválida", error);
+            console.warn("Inicialização de sessão lenta ou falhou:", error);
         } finally {
-            setIsLoading(false);
+            if (mounted) setIsLoading(false);
         }
     };
     initSession();
 
     // Listen for Auth Events (Recovery, Sign In, etc)
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+        if (!mounted) return;
+        
         if (event === 'PASSWORD_RECOVERY') {
             setRecoveryMode(true);
         }
@@ -61,6 +69,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     });
 
     return () => {
+        mounted = false;
         subscription.unsubscribe();
     };
   }, []);
