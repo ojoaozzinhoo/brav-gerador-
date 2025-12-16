@@ -23,18 +23,14 @@ const getApiKey = async (): Promise<string | null> => {
   if (manualKey) return manualKey;
 
   // 2. Environment Variables (Priority over DB)
-  // Checks for injected environment variables (Vite replaces process.env.API_KEY at build time)
-  try {
-    // @ts-ignore
-    if (typeof process !== 'undefined' && process.env && process.env.API_KEY) {
-       // @ts-ignore
-       return process.env.API_KEY;
-    }
-  } catch(e) {}
+  // Try various patterns for Env Vars
+  const envKey = 
+    (typeof process !== 'undefined' && process.env?.API_KEY) ||
+    (typeof process !== 'undefined' && process.env?.VITE_API_KEY) ||
+    (import.meta as any).env?.VITE_API_KEY ||
+    (import.meta as any).env?.API_KEY;
 
-  if ((import.meta as any).env && (import.meta as any).env.VITE_API_KEY) {
-      return (import.meta as any).env.VITE_API_KEY;
-  }
+  if (envKey) return envKey;
 
   // 3. Verifica Permissão de Chave do Sistema (Requer DB)
   try {
